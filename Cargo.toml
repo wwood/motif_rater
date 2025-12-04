@@ -1,0 +1,9 @@
+[package]
+name = "blank_slate"
+version = "0.1.0"
+authors = ["Generated"]
+edition = "2021"
+
+[dependencies]
+anyhow = "1.0"
+clap = { version = "4.4", features = ["derive"] }
