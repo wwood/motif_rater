@@ -1,5 +1,6 @@
 use anyhow::{anyhow, Context, Result};
 use clap::{ArgAction, Parser};
+use statrs::distribution::{DiscreteCDF, Poisson};
 use std::collections::BTreeSet;
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader};
@@ -66,7 +67,7 @@ fn main() -> Result<()> {
     }
 
     if args.header {
-        print_header(&motifs);
+        print_header();
     }
 
     for genome in genomes {
@@ -251,8 +252,6 @@ fn output_metrics(metrics: &GenomeMetrics, motifs: &[MotifPattern]) {
         0.0
     };
 
-    print!("{}\t{}\t{:.6}", metrics.name, metrics.length, gc_fraction);
-
     for (idx, motif) in motifs.iter().enumerate() {
         let expected = expected_motif_count(motif, gc_fraction, metrics.length);
         let windows = motif_window_count(metrics.length, motif.allowed_forward.len());
@@ -262,13 +261,20 @@ fn output_metrics(metrics: &GenomeMetrics, motifs: &[MotifPattern]) {
             0.0
         };
 
-        print!(
-            "\t{}\t{:.3}\t{:.6}",
-            metrics.motif_counts[idx], expected, observed_rate
+        let p_value = poisson_p_value(expected, metrics.motif_counts[idx] as u64);
+
+        println!(
+            "{}\t{}\t{:.6}\t{}\t{}\t{:.3}\t{:.6}\t{:.6}",
+            metrics.name,
+            metrics.length,
+            gc_fraction,
+            motif.label,
+            metrics.motif_counts[idx],
+            expected,
+            observed_rate,
+            p_value
         );
     }
-
-    println!();
 }
 
 /// Compute the expected number of motif occurrences given the GC content and sequence length.
@@ -400,15 +406,8 @@ fn complement_symbol(symbol: char) -> Option<char> {
     }
 }
 
-fn print_header(motifs: &[MotifPattern]) {
-    print!("genome\tlength\tgc_content");
-    for motif in motifs {
-        print!(
-            "\t{}_count\t{}_expected\t{}_observed_rate",
-            motif.label, motif.label, motif.label
-        );
-    }
-    println!();
+fn print_header() {
+    println!("genome\tlength\tgc_content\tmotif\tcount\texpected\tobserved_rate\tpoisson_p_value");
 }
 
 fn motif_window_count(length: u64, motif_len: usize) -> u64 {
@@ -484,4 +483,25 @@ mod tests {
     fn iupac_complement_is_inverse() {
         assert_eq!(reverse_complement("ARY").unwrap(), "RYT");
     }
+
+    #[test]
+    fn computes_poisson_upper_tail() {
+        let p_value = poisson_p_value(0.175, 3);
+        let expected = 1.0 - Poisson::new(0.175).unwrap().cdf(2);
+        assert!((p_value - expected).abs() < 1e-12);
+    }
+}
+
+fn poisson_p_value(expected: f64, observed: u64) -> f64 {
+    if expected <= 0.0 {
+        return if observed == 0 { 1.0 } else { 0.0 };
+    }
+
+    if observed == 0 {
+        return 1.0;
+    }
+
+    let poisson = Poisson::new(expected).expect("lambda must be positive");
+    let cdf = poisson.cdf(observed - 1);
+    (1.0 - cdf).max(0.0)
 }

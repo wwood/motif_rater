@@ -12,9 +12,13 @@ cargo run -- \
 
 Inputs mirror common CoverM FASTA options: provide genome files directly, supply a file with newline-delimited paths via `--genome-fasta-list`, or scan directories with `--genome-fasta-directory`.
 
-Output columns (tab-separated) per genome:
+Output columns (tab-separated) per genome/motif combination:
 
-1. `gc_content`: GC fraction across the genome.
+1. `genome`: FASTA file name.
 2. `length`: total number of bases.
-3. `{motif}_count`: occurrences of each motif plus its reverse complement.
-4. `{motif}_expected`: expected occurrences given GC content and genome length.
+3. `gc_content`: GC fraction across the genome.
+4. `motif`: motif label.
+5. `count`: occurrences of the motif plus its reverse complement.
+6. `expected`: expected occurrences given GC content and genome length.
+7. `observed_rate`: count divided by possible windows.
+8. `poisson_p_value`: upper-tail Poisson probability of observing at least `count` given `expected`.

@@ -1,3 +1,4 @@
+use statrs::distribution::DiscreteCDF;
 use std::fs::File;
 use std::io::Write;
 use std::path::Path;
@@ -23,12 +24,19 @@ fn runs_binary_and_reports_metrics() {
     let output = String::from_utf8(assert.get_output().stdout.clone()).expect("utf8 output");
     let fields: Vec<&str> = output.trim().split('\t').collect();
 
+    assert_eq!(fields.len(), 8);
     assert_eq!(fields[0], "sample.fa");
     assert_eq!(fields[1], "7");
     assert_eq!(fields[2], "0.571429");
-    assert_eq!(fields[3], "3");
-    assert_eq!(fields[4], "0.175");
-    assert_eq!(fields[5], "0.600000");
+    assert_eq!(fields[3], "ACG");
+    assert_eq!(fields[4], "3");
+    assert_eq!(fields[5], "0.175");
+    assert_eq!(fields[6], "0.600000");
+
+    let p_value: f64 = fields[7].parse().expect("p-value is float");
+    let poisson = statrs::distribution::Poisson::new(0.175).expect("lambda");
+    let expected_p = 1.0 - poisson.cdf(2);
+    assert!((p_value - expected_p).abs() < 1e-6);
 
     temp_dir.close().unwrap();
 }
