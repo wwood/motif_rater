@@ -37,7 +37,6 @@ struct Args {
 #[derive(Clone)]
 struct MotifPattern {
     label: String,
-    reverse_complement: String,
     allowed_forward: Vec<Vec<u8>>,
     allowed_reverse: Vec<Vec<u8>>,
 }
@@ -231,7 +230,7 @@ fn count_matches(sequence: &[u8], allowed: &[Vec<u8>]) -> usize {
         let mut matched = true;
         for (offset, allowed_bases) in allowed.iter().enumerate() {
             let base = sequence[window_start + offset];
-            if !allowed_bases.iter().any(|candidate| *candidate == base) {
+            if !allowed_bases.contains(&base) {
                 matched = false;
                 break;
             }
@@ -334,12 +333,10 @@ impl MotifPattern {
         }
 
         let allowed_forward = motif_to_allowed(&label)?;
-        let reverse_complement = reverse_complement(&label)?;
-        let allowed_reverse = motif_to_allowed(&reverse_complement)?;
+        let allowed_reverse = motif_to_allowed(&reverse_complement(&label)?)?;
 
         Ok(Self {
             label,
-            reverse_complement,
             allowed_forward,
             allowed_reverse,
         })
