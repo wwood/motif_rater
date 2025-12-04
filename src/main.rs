@@ -213,11 +213,7 @@ fn process_sequence(
         let forward = count_matches(&normalized, &motif.allowed_forward);
         let reverse = count_matches(&normalized, &motif.allowed_reverse);
 
-        if motif.reverse_complement == motif.label {
-            motif_counts[motif_index] += forward;
-        } else {
-            motif_counts[motif_index] += forward + reverse;
-        }
+        motif_counts[motif_index] += forward + reverse;
     }
 }
 
@@ -278,13 +274,12 @@ fn output_metrics(metrics: &GenomeMetrics, motifs: &[MotifPattern]) {
 /// Compute the expected number of motif occurrences given the GC content and sequence length.
 ///
 /// The calculation multiplies the probability of the motif appearing at any position by the
-/// number of possible windows. For non-palindromic motifs the forward and reverse-complement
-/// probabilities are summed because they represent distinct orientations. Palindromic motifs
-/// are only counted once: their forward and reverse representations are identical, so summing
-/// them would double-count the same windows. For example, the motif `ACG` has probability
-/// 0.25³ = 0.015625 on a sequence with GC content 0.5; its reverse complement `CGT` has the
-/// same probability. In a 100 bp sequence there are 98 windows of length 3, so the expected
-/// total is 0.03125 × 98 ≈ 3.0625 occurrences.
+/// number of possible windows. Forward and reverse-complement probabilities are summed for
+/// every motif, even when the motif is palindromic, because both orientations are reported
+/// independently. For example, the motif `ACG` has probability 0.25³ = 0.015625 on a sequence
+/// with GC content 0.5; its reverse complement `CGT` has the same probability. In a 100 bp
+/// sequence there are 98 windows of length 3, so the expected total is (0.015625 × 2) × 98 ≈
+/// 6.125 occurrences.
 fn expected_motif_count(motif: &MotifPattern, gc_fraction: f64, length: u64) -> f64 {
     if motif.allowed_forward.is_empty()
         || length == 0
@@ -296,11 +291,7 @@ fn expected_motif_count(motif: &MotifPattern, gc_fraction: f64, length: u64) -> 
     let prob_forward = motif_probability(&motif.allowed_forward, gc_fraction);
     let prob_reverse = motif_probability(&motif.allowed_reverse, gc_fraction);
 
-    let combined_prob = if motif.label == motif.reverse_complement {
-        prob_forward
-    } else {
-        prob_forward + prob_reverse
-    };
+    let combined_prob = prob_forward + prob_reverse;
 
     let positions = motif_window_count(length, motif.allowed_forward.len());
     combined_prob * positions as f64
@@ -480,13 +471,13 @@ mod tests {
     }
 
     #[test]
-    fn palindromic_expected_counts_not_doubled() {
+    fn palindromic_expected_counts_are_doubled() {
         let motif = MotifPattern::new("ATAT").unwrap();
         let gc = 0.5;
         let expected_single = motif_probability(&motif.allowed_forward, gc);
         let expected_total = expected_motif_count(&motif, gc, 1000);
         let positions = 1000 - motif.allowed_forward.len() as u64 + 1;
-        assert!((expected_total - expected_single * positions as f64).abs() < 1e-6);
+        assert!((expected_total - expected_single * 2.0 * positions as f64).abs() < 1e-6);
     }
 
     #[test]
