@@ -78,6 +78,7 @@ fn main() -> Result<()> {
     Ok(())
 }
 
+/// Gather motif definitions from CLI flags and files, removing empties and duplicates.
 fn collect_motifs(args: &Args) -> Result<Vec<MotifPattern>> {
     let mut motifs: Vec<String> = args
         .motifs
@@ -98,6 +99,7 @@ fn collect_motifs(args: &Args) -> Result<Vec<MotifPattern>> {
         .collect()
 }
 
+/// Aggregate genome FASTA paths from explicit files, directory listings, and list files.
 fn collect_genome_paths(args: &Args) -> Result<Vec<PathBuf>> {
     let mut paths = BTreeSet::new();
 
@@ -131,6 +133,7 @@ fn collect_genome_paths(args: &Args) -> Result<Vec<PathBuf>> {
     Ok(paths.into_iter().collect())
 }
 
+/// Parse a FASTA file and aggregate metrics across all sequences it contains.
 fn analyze_genome(path: &Path, motifs: &[MotifPattern]) -> Result<GenomeMetrics> {
     let file = File::open(path).with_context(|| format!("opening {:?}", path))?;
     let reader = BufReader::new(file);
@@ -180,6 +183,10 @@ fn analyze_genome(path: &Path, motifs: &[MotifPattern]) -> Result<GenomeMetrics>
     })
 }
 
+/// Update running totals for a single FASTA sequence.
+///
+/// The function normalizes `U` to `T`, increments total length and GC counts,
+/// and tallies matches for each motif on the forward and reverse strands.
 fn process_sequence(
     seq: &str,
     length: &mut u64,
@@ -214,6 +221,7 @@ fn process_sequence(
     }
 }
 
+/// Count how many windows in `sequence` satisfy the set of allowed bases per position.
 fn count_matches(sequence: &[u8], allowed: &[Vec<u8>]) -> usize {
     if allowed.is_empty() || sequence.len() < allowed.len() {
         return 0;
@@ -239,6 +247,7 @@ fn count_matches(sequence: &[u8], allowed: &[Vec<u8>]) -> usize {
     count
 }
 
+/// Emit a tab-separated line containing genome-level metrics and motif statistics.
 fn output_metrics(metrics: &GenomeMetrics, motifs: &[MotifPattern]) {
     let gc_fraction = if metrics.length > 0 {
         metrics.gc_count as f64 / metrics.length as f64
@@ -256,6 +265,14 @@ fn output_metrics(metrics: &GenomeMetrics, motifs: &[MotifPattern]) {
     println!();
 }
 
+/// Compute the expected number of motif occurrences given the GC content and sequence length.
+///
+/// The calculation multiplies the probability of the motif appearing at any position by the
+/// number of possible windows. For non-palindromic motifs the forward and reverse-complement
+/// probabilities are summed. For example, the motif `ACG` has probability 0.25³ = 0.015625 on
+/// a sequence with GC content 0.5; its reverse complement `CGT` has the same probability. In a
+/// 100 bp sequence there are 98 windows of length 3, so the expected total is 0.03125 × 98 ≈
+/// 3.0625 occurrences.
 fn expected_motif_count(motif: &MotifPattern, gc_fraction: f64, length: u64) -> f64 {
     if motif.allowed_forward.is_empty()
         || length == 0
@@ -277,6 +294,7 @@ fn expected_motif_count(motif: &MotifPattern, gc_fraction: f64, length: u64) -> 
     combined_prob * positions as f64
 }
 
+/// Probability that a random window with the given GC content matches the motif constraints.
 fn motif_probability(allowed: &[Vec<u8>], gc_fraction: f64) -> f64 {
     allowed
         .iter()
@@ -289,6 +307,7 @@ fn motif_probability(allowed: &[Vec<u8>], gc_fraction: f64) -> f64 {
         .product()
 }
 
+/// Probability of observing a base given the GC fraction of the sequence.
 fn base_probability(base: char, gc_fraction: f64) -> f64 {
     match base {
         'G' | 'C' => gc_fraction / 2.0,
@@ -298,6 +317,7 @@ fn base_probability(base: char, gc_fraction: f64) -> f64 {
 }
 
 impl MotifPattern {
+    /// Construct the forward and reverse-complement representations of a motif.
     fn new(raw: &str) -> Result<Self> {
         let label = raw.trim().to_ascii_uppercase();
         if label.is_empty() {
@@ -317,6 +337,7 @@ impl MotifPattern {
     }
 }
 
+/// Convert an IUPAC motif string to allowed bases for each position.
 fn motif_to_allowed(motif: &str) -> Result<Vec<Vec<u8>>> {
     motif
         .chars()
@@ -346,6 +367,7 @@ fn iupac_bases(symbol: char) -> Option<&'static [char]> {
     }
 }
 
+/// Generate the reverse-complement of an IUPAC motif string.
 fn reverse_complement(motif: &str) -> Result<String> {
     motif
         .chars()
