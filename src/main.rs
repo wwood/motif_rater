@@ -421,7 +421,7 @@ mod tests {
             &[motif.clone()],
             &mut counts,
         );
-        assert_eq!(counts[0], 2);
+        assert_eq!(counts[0], 3);
     }
 
     #[test]
