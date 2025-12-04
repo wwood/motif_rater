@@ -27,6 +27,9 @@ fn runs_binary_and_reports_metrics() {
     assert_eq!(fields[1], "7");
     assert_eq!(fields[3], "3");
 
+    let observed_rate: f64 = fields[5].parse().expect("observed rate");
+    assert!((observed_rate - 0.6).abs() < 1e-6);
+
     temp_dir.close().unwrap();
 }
 

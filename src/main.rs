@@ -259,7 +259,17 @@ fn output_metrics(metrics: &GenomeMetrics, motifs: &[MotifPattern]) {
 
     for (idx, motif) in motifs.iter().enumerate() {
         let expected = expected_motif_count(motif, gc_fraction, metrics.length);
-        print!("\t{}\t{:.3}", metrics.motif_counts[idx], expected);
+        let windows = motif_window_count(metrics.length, motif.allowed_forward.len());
+        let observed_rate = if windows > 0 {
+            metrics.motif_counts[idx] as f64 / windows as f64
+        } else {
+            0.0
+        };
+
+        print!(
+            "\t{}\t{:.3}\t{:.6}",
+            metrics.motif_counts[idx], expected, observed_rate
+        );
     }
 
     println!();
@@ -290,7 +300,7 @@ fn expected_motif_count(motif: &MotifPattern, gc_fraction: f64, length: u64) -> 
         prob_forward + prob_reverse
     };
 
-    let positions = length.saturating_sub(motif.allowed_forward.len() as u64) + 1;
+    let positions = motif_window_count(length, motif.allowed_forward.len());
     combined_prob * positions as f64
 }
 
@@ -400,9 +410,20 @@ fn complement_symbol(symbol: char) -> Option<char> {
 fn print_header(motifs: &[MotifPattern]) {
     print!("genome\tlength\tgc_content");
     for motif in motifs {
-        print!("\t{}_count\t{}_expected", motif.label, motif.label);
+        print!(
+            "\t{}_count\t{}_expected\t{}_observed_rate",
+            motif.label, motif.label, motif.label
+        );
     }
     println!();
+}
+
+fn motif_window_count(length: u64, motif_len: usize) -> u64 {
+    if motif_len == 0 || length < motif_len as u64 {
+        0
+    } else {
+        length - motif_len as u64 + 1
+    }
 }
 
 fn is_fasta(path: &Path) -> bool {
