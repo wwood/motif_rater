@@ -1,5 +1,5 @@
 [package]
-name = "blank_slate"
+name = "motif_rater"
 version = "0.1.0"
 authors = ["Generated"]
 edition = "2021"

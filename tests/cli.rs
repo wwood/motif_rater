@@ -10,7 +10,7 @@ fn runs_binary_and_reports_metrics() {
 
     write_fasta(&fasta_path, ">seq1\nACGTACG\n");
 
-    let assert = assert_cmd::cargo::cargo_bin_cmd!("blank_slate")
+    let assert = assert_cmd::cargo::cargo_bin_cmd!("motif_rater")
         .args([
             "--motif",
             "ACG",

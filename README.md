@@ -1,4 +1,4 @@
-# blank_slate
+# motif_rater
 
 A utility for summarizing motif content in genome FASTA files.
 
