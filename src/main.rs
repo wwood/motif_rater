@@ -29,6 +29,10 @@ struct Args {
     #[arg(long = "motif-file")]
     motif_files: Vec<PathBuf>,
 
+    /// Generate all possible DNA motifs of the given length instead of specifying them manually.
+    #[arg(long = "motif-length", value_parser = clap::value_parser!(usize), value_name = "N")]
+    motif_length: Option<usize>,
+
     /// Print header row in output.
     #[arg(long, default_value_t = true, action = ArgAction::Set, value_name = "BOOL")]
     header: bool,
@@ -51,10 +55,16 @@ struct GenomeMetrics {
 fn main() -> Result<()> {
     let args = Args::parse();
 
+    if args.motif_length.is_some() && (!args.motifs.is_empty() || !args.motif_files.is_empty()) {
+        return Err(anyhow!(
+            "--motif-length cannot be combined with --motif or --motif-file"
+        ));
+    }
+
     let motifs = collect_motifs(&args).context("failed to collect motifs")?;
     if motifs.is_empty() {
         return Err(anyhow!(
-            "provide at least one motif using --motif or --motif-file"
+            "provide at least one motif using --motif, --motif-file, or --motif-length"
         ));
     }
 
@@ -66,13 +76,13 @@ fn main() -> Result<()> {
     }
 
     if args.header {
-        print_header();
+        print_header(args.motif_length.is_some());
     }
 
     for genome in genomes {
         let metrics = analyze_genome(&genome, &motifs)
             .with_context(|| format!("processing genome {:?}", genome))?;
-        output_metrics(&metrics, &motifs);
+        output_metrics(&metrics, &motifs, args.motif_length.is_some());
     }
 
     Ok(())
@@ -80,6 +90,10 @@ fn main() -> Result<()> {
 
 /// Gather motif definitions from CLI flags and files, removing empties and duplicates.
 fn collect_motifs(args: &Args) -> Result<Vec<MotifPattern>> {
+    if let Some(length) = args.motif_length {
+        return generate_motifs_of_length(length);
+    }
+
     let mut motifs: Vec<String> = args
         .motifs
         .iter()
@@ -244,7 +258,7 @@ fn count_matches(sequence: &[u8], allowed: &[Vec<u8>]) -> usize {
 }
 
 /// Emit a tab-separated line containing genome-level metrics and motif statistics.
-fn output_metrics(metrics: &GenomeMetrics, motifs: &[MotifPattern]) {
+fn output_metrics(metrics: &GenomeMetrics, motifs: &[MotifPattern], include_adjusted_p: bool) {
     let gc_fraction = if metrics.length > 0 {
         metrics.gc_count as f64 / metrics.length as f64
     } else {
@@ -262,17 +276,33 @@ fn output_metrics(metrics: &GenomeMetrics, motifs: &[MotifPattern]) {
 
         let p_value = poisson_p_value(expected, metrics.motif_counts[idx] as u64);
 
-        println!(
-            "{}\t{}\t{:.6}\t{}\t{}\t{:.3}\t{:.6}\t{:.6}",
-            metrics.name,
-            metrics.length,
-            gc_fraction,
-            motif.label,
-            metrics.motif_counts[idx],
-            expected,
-            observed_rate,
-            p_value
-        );
+        if include_adjusted_p {
+            let adjusted = bonferroni_correction(p_value, motifs.len());
+            println!(
+                "{}\t{}\t{:.6}\t{}\t{}\t{:.3}\t{:.6}\t{:.6}\t{:.6}",
+                metrics.name,
+                metrics.length,
+                gc_fraction,
+                motif.label,
+                metrics.motif_counts[idx],
+                expected,
+                observed_rate,
+                p_value,
+                adjusted
+            );
+        } else {
+            println!(
+                "{}\t{}\t{:.6}\t{}\t{}\t{:.3}\t{:.6}\t{:.6}",
+                metrics.name,
+                metrics.length,
+                gc_fraction,
+                motif.label,
+                metrics.motif_counts[idx],
+                expected,
+                observed_rate,
+                p_value
+            );
+        }
     }
 }
 
@@ -352,6 +382,48 @@ fn motif_to_allowed(motif: &str) -> Result<Vec<Vec<u8>>> {
         .ok_or_else(|| anyhow!("unsupported IUPAC symbol in motif: {}", motif))
 }
 
+fn generate_motifs_of_length(length: usize) -> Result<Vec<MotifPattern>> {
+    if length == 0 {
+        return Err(anyhow!("motif length must be positive"));
+    }
+
+    let bases = [b'A', b'C', b'G', b'T'];
+    let mut motifs = Vec::with_capacity(4usize.pow(length as u32));
+    let mut seen_canonical = BTreeSet::new();
+
+    let mut current = vec![b'A'; length];
+    loop {
+        let motif = String::from_utf8(current.clone()).expect("valid DNA characters");
+        let reverse = reverse_complement(&motif)?;
+        let canonical = if motif <= reverse { motif.clone() } else { reverse.clone() };
+
+        if seen_canonical.insert(canonical) {
+            motifs.push(MotifPattern::new(&motif)?);
+        }
+
+        // Increment the base-4 counter represented by `current`.
+        let mut position = length;
+        while position > 0 {
+            position -= 1;
+            let next_index = bases
+                .iter()
+                .position(|b| *b == current[position])
+                .expect("current motif contains DNA bases")
+                + 1;
+
+            if let Some(&next_base) = bases.get(next_index) {
+                current[position] = next_base;
+                for trailing in current.iter_mut().skip(position + 1) {
+                    *trailing = b'A';
+                }
+                break;
+            } else if position == 0 {
+                return Ok(motifs);
+            }
+        }
+    }
+}
+
 fn iupac_bases(symbol: char) -> Option<&'static [char]> {
     match symbol.to_ascii_uppercase() {
         'A' => Some(&['A']),
@@ -403,8 +475,16 @@ fn complement_symbol(symbol: char) -> Option<char> {
     }
 }
 
-fn print_header() {
-    println!("genome\tlength\tgc_content\tmotif\tcount\texpected\tobserved_rate\tpoisson_p_value");
+fn print_header(include_adjusted_p: bool) {
+    if include_adjusted_p {
+        println!(
+            "genome\tlength\tgc_content\tmotif\tcount\texpected\tobserved_rate\tpoisson_p_value\tbonferroni_p_value"
+        );
+    } else {
+        println!(
+            "genome\tlength\tgc_content\tmotif\tcount\texpected\tobserved_rate\tpoisson_p_value"
+        );
+    }
 }
 
 fn motif_window_count(length: u64, motif_len: usize) -> u64 {
@@ -487,6 +567,22 @@ mod tests {
         let expected = 1.0 - Poisson::new(0.175).unwrap().cdf(2);
         assert!((p_value - expected).abs() < 1e-12);
     }
+
+    #[test]
+    fn generates_all_dna_motifs_of_length() {
+        let motifs = generate_motifs_of_length(2).unwrap();
+        assert_eq!(motifs.len(), 10);
+        let labels: Vec<_> = motifs.into_iter().map(|m| m.label).collect();
+        assert_eq!(labels, vec![
+            "AA", "AC", "AG", "AT", "CA", "CC", "CG", "GA", "GC", "TA",
+        ]);
+    }
+
+    #[test]
+    fn bonferroni_clamps_to_one() {
+        assert_eq!(bonferroni_correction(0.4, 3), 1.0);
+        assert!((bonferroni_correction(0.01, 10) - 0.1).abs() < 1e-12);
+    }
 }
 
 fn poisson_p_value(expected: f64, observed: u64) -> f64 {
@@ -501,4 +597,12 @@ fn poisson_p_value(expected: f64, observed: u64) -> f64 {
     let poisson = Poisson::new(expected).expect("lambda must be positive");
     let cdf = poisson.cdf(observed - 1);
     (1.0 - cdf).max(0.0)
+}
+
+fn bonferroni_correction(p_value: f64, tests: usize) -> f64 {
+    if tests == 0 {
+        return p_value;
+    }
+
+    (p_value * tests as f64).min(1.0)
 }
